@@ -1,0 +1,170 @@
+---
+title: "Projet Pluie : JUNG Thierry"
+output:
+  word_document: default
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Téléchargement
+
+On télécharge les données d'entrainement et on les parcoure.
+On s'apercoit qu'il y a presque une cinquantaine de variables. Celles-ci sont presque exclusivement numérique.
+
+```{r}
+
+rm(list=ls())
+
+MeteoTrain <- read.csv("meteo.train.csv", header = T, quote="")
+summary(MeteoTrain)
+
+str(MeteoTrain)
+```
+
+## Analyse
+
+En faisant une regression sur l'ensemble de celles-ci, 2 variables ressortent comme très pertinentes : "La direction du vent à l'altitude à laquelle la pression vaut 900 hPa" et "La pression".
+
+```{r}
+gAll = glm(formula = X..pluie.demain.. ~ ., data=MeteoTrain, family=binomial)
+summary(gAll)
+```
+
+## Graphique
+
+En faisant 2 boites à moustache, on note effectivement une vraie influence de ces variables.
+
+```{r}
+boxplot(MeteoTrain$X..Wind.Direction.daily.mean..900.mb... ~ MeteoTrain$X..pluie.demain..)
+boxplot(MeteoTrain$X..Mean.Sea.Level.Pressure.daily.mean..MSL...~ MeteoTrain$X..pluie.demain..)
+
+```
+
+## Regression
+
+On effectue une regression sur les 2 variables.
+
+```{r}
+g1 = glm(formula = X..pluie.demain.. ~ X..Mean.Sea.Level.Pressure.daily.mean..MSL...+ X..Wind.Direction.daily.mean..900.mb... , data=MeteoTrain, family=binomial)
+summary(g1)
+```
+
+## Automatique
+
+On peut aussi essayer de chercher de facon automatique le meilleur modèle avec la fonction step. Celle-ci étant trop longue avec 48 variables. On effectue déja un tri en ne conservant que les données sur les moyennes.
+
+```{r}
+g2 = step(glm(formula = X..pluie.demain.. ~ X..Temperature.daily.mean..2.m.above.gnd... +
+ X..Relative.Humidity.daily.mean..2.m.above.gnd... + X..Mean.Sea.Level.Pressure.daily.mean..MSL... +
+X..Total.Precipitation.daily.sum..sfc... +
+X..Snowfall.amount.raw.daily.sum..sfc... +
+X..Total.Cloud.Cover.daily.mean..sfc... +
+X..High.Cloud.Cover.daily.mean..high.cld.lay... +
+X..Medium.Cloud.Cover.daily.mean..mid.cld.lay... +
+X..Low.Cloud.Cover.daily.mean..low.cld.lay... +
+X..Sunshine.Duration.daily.sum..sfc... +
+X..Shortwave.Radiation.daily.sum..sfc... +
+X..Wind.Speed.daily.mean..10.m.above.gnd... +
+X..Wind.Direction.daily.mean..10.m.above.gnd... +
+X..Wind.Speed.daily.mean..80.m.above.gnd... +
+X..Wind.Direction.daily.mean..80.m.above.gnd... +
+X..Wind.Speed.daily.mean..900.mb... +
+X..Wind.Direction.daily.mean..900.mb... +
+X..Wind.Gust.daily.mean..sfc... , data=MeteoTrain, family=binomial))
+summary(g2)
+
+```
+
+## Choix du meilleur modèle
+
+Puis on détermine le meilleur modèle pour expliquer les données en comparant via l'ANOVA puis via les critères BIC et AIC.
+C'est toujours le modèle g2 qui l'emporte...
+
+
+```{r}
+
+anova(g1,g2,test="LRT")
+
+c(AIC(g1),AIC(g2))
+c(BIC(g1),BIC(g2))
+
+```
+
+## Prédiction
+
+On commence par télécharger la base de test.
+
+```{r}
+
+MeteoTest <- read.csv("meteo.test.csv", header = T, quote="")
+summary(MeteoTest)
+
+```
+
+## Table sur les 2 modèles
+
+Nous allons faire maintenant une prédiction avec les 2 modèles, puis on affiche les 2 tables.
+
+```{r}
+pred1 = predict(g1, MeteoTest, type="response")
+pre1 = pred1 > 0.5
+table(pre1, MeteoTest$X..pluie.demain..)
+
+pred2 = predict(g2, MeteoTest, type="response")
+pre2 = pred2 > 0.5
+table(pre2, MeteoTest$X..pluie.demain..)
+
+
+```
+
+## Performance des modèles
+
+sur le modèle avec 2 variables, on a 44 faux négatifs et 48 faux positifs soit un taux d'erreur de 31,72%.
+Sur le modèle choisi automatiquement avec STEP, on a 48 faux négatifs et 46 faux positifs soit un taux d'erreur de 32,41%.
+
+On trace la courbe ROC des différents modèles. Ils sont similaires mais on choisit tout de même le modèle avec 2 variables car l'erreur de prédiction est plus faible.
+
+```{r}
+
+library(ROCR)
+p1 = prediction(pred1, MeteoTest$X..pluie.demain..)
+p2 = prediction(pred2, MeteoTest$X..pluie.demain..)
+perf1 = performance(p1, "tpr", "fpr")
+perf2 = performance(p2, "tpr", "fpr")
+plot(perf1)
+plot(perf2,add=TRUE,col="red")
+legend("bottomright",legend=c("2 variables","step"),
+col=c("black","red"),lty=1,lwd=2)
+title("comparaison modéle")
+abline(0,1)
+
+
+```
+
+## construction du fichier de prediction
+
+On ajoute la colonne de prédiction au fichier MeteoTest.
+
+```{r}
+
+class (MeteoTest)
+MeteoTest$prev<-pre1
+```
+
+## Export du fichier de prediction
+
+On "tronque" le fichier pour ne conserver que les jours. 
+On exporte le fichier.
+
+```{r}
+
+Prevision <- subset(MeteoTest, select = c(1,2,3,4,47,49) )
+head(Prevision)
+
+write.csv2(Prevision, file = "PrevisionPluie.csv")
+
+```
