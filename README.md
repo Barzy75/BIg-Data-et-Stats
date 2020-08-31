@@ -1,1 +1,1 @@
-# BIg-Data-et-Stats
+# Big-Data-et-Stats
